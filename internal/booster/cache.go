@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/imroc/req/v3"
 	"github.com/ssdomei232/faster/handler/db"
 )
 
@@ -19,6 +18,12 @@ func HandleHttpRequest(c *gin.Context) {
 	var err error
 
 	url := strings.TrimPrefix(c.Param("url"), "/")
+	if isLocal, _ := checkURLForLocalIP(url); isLocal {
+		c.JSON(403, gin.H{
+			"error": "ssrf detected",
+		})
+		return
+	}
 	urlHash := getUrlHash(url)
 
 	isCached, err := checkCache(urlHash)
@@ -57,6 +62,7 @@ func HandleHttpRequest(c *gin.Context) {
 		}
 
 		c.File(cacheFilepath)
+		return
 	} else {
 		if err = cacheFile(url); err != nil {
 			c.AbortWithStatusJSON(500, gin.H{
@@ -66,6 +72,7 @@ func HandleHttpRequest(c *gin.Context) {
 			return
 		} else {
 			c.File(cacheFilepath)
+			return
 		}
 	}
 }
@@ -80,7 +87,7 @@ func cacheFile(url string) error {
 
 	// download file
 	urlHash := getUrlHash(url)
-	req.R().SetOutputFile("data/" + urlHash + getFileExtensionFromURL(url)).Get(url)
+	downloadFile(url)
 
 	// insert into db
 	_, err = db.Exec("INSERT INTO file (url_raw, url_hash, exp_at) VALUES (?, ?, ?)", url, urlHash, time.Now().Add(time.Hour*24*7).Unix())
@@ -106,7 +113,7 @@ func refreshCache(url string) error {
 	}
 
 	// download file
-	req.R().SetOutputFile("data/" + urlHash + getFileExtensionFromURL(url)).Get(url)
+	downloadFile(url)
 
 	// update db
 	_, err = db.Exec("UPDATE urls SET exp_at = ? WHERE url_hash = ?", time.Now().Add(time.Hour*24*7).Unix(), urlHash)
