@@ -86,10 +86,12 @@ func cacheFile(url string) error {
 	defer db.Close()
 
 	// download file
-	urlHash := getUrlHash(url)
-	downloadFile(url)
+	if err = downloadFile(url); err != nil {
+		return err
+	}
 
 	// insert into db
+	urlHash := getUrlHash(url)
 	_, err = db.Exec("INSERT INTO file (url_raw, url_hash, exp_at) VALUES (?, ?, ?)", url, urlHash, time.Now().Add(time.Hour*24*7).Unix())
 
 	return err
@@ -113,7 +115,9 @@ func refreshCache(url string) error {
 	}
 
 	// download file
-	downloadFile(url)
+	if err = downloadFile(url); err != nil {
+		return err
+	}
 
 	// update db
 	_, err = db.Exec("UPDATE urls SET exp_at = ? WHERE url_hash = ?", time.Now().Add(time.Hour*24*7).Unix(), urlHash)

@@ -1,3 +1,4 @@
+// https://segmentfault.com/a/1190000039009572
 package booster
 
 import (
