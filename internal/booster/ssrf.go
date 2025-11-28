@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 
 	"github.com/imroc/req/v3"
 )
@@ -13,6 +14,13 @@ import (
 // TODO: 拉黑域名
 func downloadFile(url string) error {
 	urlHash := getUrlHash(url)
+	const dnsCheckAttempts = 3
+	// 在开始下载前，对原始 URL 做多次 DNS 检查，若发现内网 IP 则拒绝
+	if ok, err := checkURLForLocalIPMultiple(url, dnsCheckAttempts); err != nil {
+		return err
+	} else if ok {
+		return fmt.Errorf("ssrf detected: host resolves to local IP")
+	}
 	// anti-ssrf
 	redirectPolicy := func(req *http.Request, via []*http.Request) error {
 		// 跳转超过10次，拒绝继续跳转
@@ -24,15 +32,18 @@ func downloadFile(url string) error {
 			// 拒绝跳转访问
 			return fmt.Errorf("unsupport redirect method")
 		}
-		// 判断 IP
-		ips, err := net.LookupIP(req.URL.Host)
+		// 多次 DNS 检查主机是否解析到内网 IP
+		host := req.URL.Hostname()
+		if host == "" {
+			// 兜底：若 Hostname 为空，尝试使用原始 Host（可能含端口）
+			host = req.URL.Host
+		}
+		ok, err := resolveHostHasLocalIP(host, dnsCheckAttempts)
 		if err != nil {
 			return err
 		}
-		for _, ip := range ips {
-			if isLocalIP(ip) {
-				return fmt.Errorf("ssrf detected")
-			}
+		if ok {
+			return fmt.Errorf("ssrf detected")
 		}
 		return nil
 	}
@@ -76,19 +87,64 @@ func checkURLForLocalIP(rawURL string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-
-	// 1. 分离主机和端口（处理带端口的IP如192.168.1.1:8080）
 	host, _, _ := net.SplitHostPort(parsedURL.Host)
 	if host == "" {
 		host = parsedURL.Host // 无端口时直接使用Host
 	}
-
-	// 2. 检查是否为纯IP（域名返回false）
 	ip := net.ParseIP(host)
 	if ip == nil {
 		return false, nil // 主机是域名，无需检查
 	}
-
-	// 3. 调用您的isLocalIP函数检查
 	return isLocalIP(ip), nil
+}
+
+// resolveHostHasLocalIP 对给定主机名进行多次 DNS 查询（attempts 次）。
+// 如果任意一次解析结果包含内网 IP，则返回 true。
+// 若全部尝试都失败，会返回最后一次的错误。
+func resolveHostHasLocalIP(host string, attempts int) (bool, error) {
+	var lastErr error
+	for i := 0; i < attempts; i++ {
+		ips, err := net.LookupIP(host)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if len(ips) == 0 {
+			// 没有解析到 IP，记录错误并重试
+			lastErr = fmt.Errorf("no IPs found for host %s", host)
+			continue
+		}
+		if slices.ContainsFunc(ips, isLocalIP) {
+			return true, nil
+		}
+		// 本次解析未发现内网 IP，继续下一次尝试
+	}
+	if lastErr != nil {
+		return false, lastErr
+	}
+	return false, nil
+}
+
+// checkURLForLocalIPMultiple 检查 URL 的主机是否为内网 IP 或在多次 DNS 解析中解析到内网 IP。
+func checkURLForLocalIPMultiple(rawURL string, attempts int) (bool, error) {
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		return false, err
+	}
+	// 先尝试使用 Hostname 以剥离端口和方括号
+	host := parsedURL.Hostname()
+	if host == "" {
+		// 兜底：尝试 SplitHostPort
+		h, _, _ := net.SplitHostPort(parsedURL.Host)
+		if h != "" {
+			host = h
+		} else {
+			host = parsedURL.Host
+		}
+	}
+	ip := net.ParseIP(host)
+	if ip != nil {
+		return isLocalIP(ip), nil
+	}
+	return resolveHostHasLocalIP(host, attempts)
 }
