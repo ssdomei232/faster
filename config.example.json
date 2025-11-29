@@ -1,0 +1,8 @@
+{
+    "db": {
+        "host": "x.x.x.x",
+        "user": "faster",
+        "password": "xxx",
+        "dbname": "faster"
+    }
+}
