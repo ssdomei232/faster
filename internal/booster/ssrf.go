@@ -12,8 +12,7 @@ import (
 )
 
 // TODO: 拉黑域名
-func downloadFile(url string) error {
-	urlHash := getUrlHash(url)
+func downloadFile(url, outputPath string) error {
 	const dnsCheckAttempts = 3
 	// 在开始下载前，对原始 URL 做多次 DNS 检查，若发现内网 IP 则拒绝
 	if ok, err := checkURLForLocalIPMultiple(url, dnsCheckAttempts); err != nil {
@@ -51,7 +50,7 @@ func downloadFile(url string) error {
 	// 创建 req 客户端并设置重定向策略
 	client := req.C()
 	client.SetRedirectPolicy(redirectPolicy)
-	client.R().SetOutputFile("data/" + urlHash + getFileExtensionFromURL(url)).Get(url)
+	client.R().SetOutputFile(outputPath).Get(url)
 	return nil
 }
 

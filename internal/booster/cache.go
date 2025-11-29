@@ -85,13 +85,14 @@ func cacheFile(url string) error {
 	}
 	defer db.Close()
 
-	// download file
-	if err = downloadFile(url); err != nil {
+	// download file to target cache path
+	urlHash := getUrlHash(url)
+	cacheFilepath := "data/" + urlHash + getFileExtensionFromURL(url)
+	if err = downloadFile(url, cacheFilepath); err != nil {
 		return err
 	}
 
 	// insert into db
-	urlHash := getUrlHash(url)
 	_, err = db.Exec("INSERT INTO file (url_raw, url_hash, exp_at) VALUES (?, ?, ?)", url, urlHash, time.Now().Add(time.Hour*24*7).Unix())
 
 	return err
@@ -108,24 +109,27 @@ func refreshCache(url string) error {
 	urlHash := getUrlHash(url)
 	cacheFilepath := "data/" + urlHash + getFileExtensionFromURL(url)
 
-	// delete old file from data dir
-	err = os.Remove(cacheFilepath)
-	if err != nil {
+	// download to a temporary file first; only replace original if download succeeds
+	tmpPath := cacheFilepath + ".tmp"
+	if err = downloadFile(url, tmpPath); err != nil {
+		// cleanup temp file if any
+		_ = os.Remove(tmpPath)
 		return err
 	}
 
-	// download file
-	if err = downloadFile(url); err != nil {
+	// rename temp file to final cache path (atomic on POSIX)
+	if err = os.Rename(tmpPath, cacheFilepath); err != nil {
+		// cleanup temp file on failure
+		_ = os.Remove(tmpPath)
 		return err
 	}
 
-	// update db
-	_, err = db.Exec("UPDATE urls SET exp_at = ? WHERE url_hash = ?", time.Now().Add(time.Hour*24*7).Unix(), urlHash)
-
+	// update db only after file replacement succeeds
+	_, err = db.Exec("UPDATE file SET exp_at = ? WHERE url_hash = ?", time.Now().Add(time.Hour*24*7).Unix(), urlHash)
 	return err
 }
 
-// check whwather cache file expired
+// check wheater cache file expired
 func checkCacheExpired(url string) (bool, error) {
 	db, err := db.GetDB()
 	if err != nil {
