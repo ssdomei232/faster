@@ -6,7 +6,9 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"slices"
+	"strings"
 
 	"github.com/imroc/req/v3"
 )
@@ -50,7 +52,39 @@ func downloadFile(url, outputPath string) error {
 	// 创建 req 客户端并设置重定向策略
 	client := req.C()
 	client.SetRedirectPolicy(redirectPolicy)
-	client.R().SetOutputFile(outputPath).Get(url)
+
+	// 执行下载并将响应写入文件
+	resp, err := client.R().SetOutputFile(outputPath).Get(url)
+	if err != nil {
+		// 下载出错，返回原错误
+		return err
+	}
+	// 若响应状态码为 4xx/5xx，删除文件并返回错误
+	if resp != nil && resp.StatusCode >= 400 {
+		_ = os.Remove(outputPath)
+		return fmt.Errorf("download failed: status %d", resp.StatusCode)
+	}
+
+	// 打开文件读取前 512 字节进行内容嗅探（不要依赖文件后缀名）
+	f, err := os.Open(outputPath)
+	if err != nil {
+		// 打开失败，尝试删除并返回错误
+		_ = os.Remove(outputPath)
+		return err
+	}
+	defer f.Close()
+
+	buf := make([]byte, 512)
+	n, _ := f.Read(buf)
+	contentType := http.DetectContentType(buf[:n])
+
+	if !isAllowedStaticContentType(contentType) {
+		// 非允许的静态资源，删除文件并返回错误
+		f.Close()
+		_ = os.Remove(outputPath)
+		return fmt.Errorf("disallowed content type: %s", contentType)
+	}
+
 	return nil
 }
 
@@ -146,4 +180,33 @@ func checkURLForLocalIPMultiple(rawURL string, attempts int) (bool, error) {
 		return isLocalIP(ip), nil
 	}
 	return resolveHostHasLocalIP(host, attempts)
+}
+
+// isAllowedStaticContentType 基于文件头检测的 MIME 类型判断，允许图片、音频、js、css 和常见字体类型。
+func isAllowedStaticContentType(ct string) bool {
+	// 去掉参数部分（如 "text/html; charset=utf-8"）并小写比较
+	mediaType := strings.ToLower(strings.TrimSpace(strings.Split(ct, ";")[0]))
+	if mediaType == "" {
+		return false
+	}
+	// 图片和音频（音乐）
+	if strings.HasPrefix(mediaType, "image/") || strings.HasPrefix(mediaType, "audio/") {
+		return true
+	}
+	// JS / CSS
+	if mediaType == "application/javascript" || mediaType == "application/x-javascript" || mediaType == "text/javascript" || mediaType == "text/css" {
+		return true
+	}
+	// 常见字体 MIME
+	allowedFonts := []string{
+		"font/woff",
+		"font/woff2",
+		"application/font-woff",
+		"application/font-woff2",
+		"application/x-font-ttf",
+		"font/ttf",
+		"font/otf",
+		"application/vnd.ms-fontobject",
+	}
+	return slices.Contains(allowedFonts, mediaType)
 }

@@ -3,6 +3,7 @@ package booster
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"log"
 	"net/url"
 	"os"
 	"path"
@@ -89,6 +90,7 @@ func cacheFile(url string) error {
 	urlHash := getUrlHash(url)
 	cacheFilepath := "data/" + urlHash + getFileExtensionFromURL(url)
 	if err = downloadFile(url, cacheFilepath); err != nil {
+		log.Println("download file error:", err)
 		return err
 	}
 
