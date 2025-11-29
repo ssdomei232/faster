@@ -1,0 +1,29 @@
+name: Go Build and Release
+
+on:
+  push
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: "1.23"
+
+      - name: Get dependencies
+        run: go mod tidy
+
+      - name: Build project
+        run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o main
+      
+      - name: Update Server by 1panel
+        env:
+            PANEL_API_KEY: ${{ secrets.PANEL_API_KEY }}
+            PANEL_URL: ${{ secrets.PANEL_URL }}
+            APP_NAME: "faster"
+        run: chmod +x script/update.sh && ./script/update.sh

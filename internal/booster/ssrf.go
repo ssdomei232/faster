@@ -102,7 +102,7 @@ func checkURLForLocalIP(rawURL string) (bool, error) {
 // 若全部尝试都失败，会返回最后一次的错误。
 func resolveHostHasLocalIP(host string, attempts int) (bool, error) {
 	var lastErr error
-	for i := 0; i < attempts; i++ {
+	for range attempts {
 		ips, err := net.LookupIP(host)
 		if err != nil {
 			lastErr = err
