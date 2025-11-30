@@ -114,7 +114,7 @@ func isLocalIP(ip net.IP) bool {
 	return false
 }
 
-// CheckURLForLocalIP 检查URL中是否包含内网IP（仅当主机是纯IP时检查）
+// checkURLForLocalIP 检查URL中是否包含内网IP（仅当主机是纯IP时检查）
 func checkURLForLocalIP(rawURL string) (bool, error) {
 	parsedURL, err := url.Parse(rawURL)
 	if err != nil {
